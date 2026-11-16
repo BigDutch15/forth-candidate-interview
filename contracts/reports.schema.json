@@ -1,0 +1,131 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/accounts/reports.schema.json",
+  "title": "Account activity reports",
+  "description": "The format of the two reports. Write out/account_balances.json as an AccountBalancesReport and out/daily_statements.json as a DailyStatementsReport. Running your program twice on the same stream must produce exactly the same files.",
+  "oneOf": [
+    { "$ref": "#/$defs/AccountBalancesReport" },
+    { "$ref": "#/$defs/DailyStatementsReport" }
+  ],
+  "$defs": {
+    "Money": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]{2}$",
+      "description": "An amount of money as a string with exactly two decimal places, never negative, e.g. \"1234.50\" or \"0.00\"."
+    },
+    "Date": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+    },
+    "Timestamp": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+    },
+    "AccountBalancesReport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["report", "summary", "accounts"],
+      "properties": {
+        "report": { "const": "ACCOUNT_BALANCES" },
+        "summary": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["messages_received", "duplicate_messages", "accounts", "transactions_applied"],
+          "description": "What your program saw. These must add up: messages_received = accounts + transactions_applied + duplicate_messages.",
+          "properties": {
+            "messages_received": { "type": "integer", "minimum": 0, "description": "Every message returned by poll(), including duplicates." },
+            "duplicate_messages": { "type": "integer", "minimum": 0, "description": "Messages you identified as duplicates and skipped." },
+            "accounts": { "type": "integer", "minimum": 0, "description": "The number of distinct accounts." },
+            "transactions_applied": { "type": "integer", "minimum": 0, "description": "The number of distinct transactions included in the balances." }
+          }
+        },
+        "accounts": {
+          "type": "array",
+          "description": "One row per account, including accounts with no transactions. Sorted by account_id.",
+          "items": { "$ref": "#/$defs/AccountBalance" }
+        }
+      }
+    },
+    "AccountBalance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["account_id", "owner_name", "account_type", "opened_date", "starting_balance", "total_deposits", "total_withdrawals", "transaction_count", "current_balance", "last_transaction_at"],
+      "properties": {
+        "account_id": { "type": "string", "pattern": "^[0-9]+$" },
+        "owner_name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "first_name + \" \" + last_name, or just last_name when first_name is null."
+        },
+        "account_type": { "enum": ["CHECKING", "SAVINGS"] },
+        "opened_date": { "$ref": "#/$defs/Date" },
+        "starting_balance": { "$ref": "#/$defs/Money" },
+        "total_deposits": { "$ref": "#/$defs/Money", "description": "The sum of all DEPOSIT amounts." },
+        "total_withdrawals": { "$ref": "#/$defs/Money", "description": "The sum of all WITHDRAWAL amounts, as a positive number." },
+        "transaction_count": { "type": "integer", "minimum": 0 },
+        "current_balance": {
+          "$ref": "#/$defs/Money",
+          "description": "starting_balance + total_deposits - total_withdrawals."
+        },
+        "last_transaction_at": {
+          "oneOf": [{ "$ref": "#/$defs/Timestamp" }, { "type": "null" }],
+          "description": "The timestamp of the most recent transaction, or null if there are none."
+        }
+      }
+    },
+    "DailyStatementsReport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["report", "statements"],
+      "properties": {
+        "report": { "const": "DAILY_STATEMENTS" },
+        "statements": {
+          "type": "array",
+          "description": "One statement per account for each UTC date on which that account had at least one transaction. Days with no transactions get no statement. Sorted by account_id, then date.",
+          "items": { "$ref": "#/$defs/DailyStatement" }
+        }
+      }
+    },
+    "DailyStatement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["account_id", "date", "starting_balance", "total_deposits", "total_withdrawals", "ending_balance", "transactions"],
+      "properties": {
+        "account_id": { "type": "string", "pattern": "^[0-9]+$" },
+        "date": {
+          "$ref": "#/$defs/Date",
+          "description": "The UTC date the transactions happened on (taken from their timestamp)."
+        },
+        "starting_balance": {
+          "$ref": "#/$defs/Money",
+          "description": "The ending_balance of this account's previous statement, or the account's starting_balance for its first statement."
+        },
+        "total_deposits": { "$ref": "#/$defs/Money" },
+        "total_withdrawals": { "$ref": "#/$defs/Money" },
+        "ending_balance": {
+          "$ref": "#/$defs/Money",
+          "description": "starting_balance + total_deposits - total_withdrawals. Equal to balance_after for the day's last transaction."
+        },
+        "transactions": {
+          "type": "array",
+          "minItems": 1,
+          "description": "That day's transactions in time order. If two have the same timestamp, the lower transaction_id comes first.",
+          "items": { "$ref": "#/$defs/StatementTransaction" }
+        }
+      }
+    },
+    "StatementTransaction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["transaction_id", "timestamp", "type", "description", "amount", "balance_after"],
+      "properties": {
+        "transaction_id": { "type": "string", "pattern": "^TXN-[0-9]{5}$" },
+        "timestamp": { "$ref": "#/$defs/Timestamp" },
+        "type": { "enum": ["DEPOSIT", "WITHDRAWAL"] },
+        "description": { "type": "string" },
+        "amount": { "$ref": "#/$defs/Money", "description": "Always positive; `type` says whether it was added or subtracted." },
+        "balance_after": { "$ref": "#/$defs/Money", "description": "The account's balance right after this transaction." }
+      }
+    }
+  }
+}
